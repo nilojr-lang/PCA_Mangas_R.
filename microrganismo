@@ -1,0 +1,104 @@
+# Pacotes
+library(readxl)
+library(dplyr)
+library(FactoMineR)
+library(factoextra)
+library(ggplot2)
+
+# -------------------------
+# 1. Importar dados
+# -------------------------
+dados <- read_excel("C:/Users/55749/Desktop/PCA BRUNO/Média.xlsx")
+
+# Renomear colunas (sem acentos/espaços)
+colnames(dados) <- c("Microrganismo", "Umidade", "Extrato", "Tratamento",
+                     "Numero_folhas", "Altura_plantas", "Diametro_caule",
+                     "Area_foliar", "Comprimento_raizes", "Volume_raizes")
+
+# Fatores
+dados <- dados %>%
+  mutate(
+    Microrganismo = as.factor(Microrganismo),
+    Umidade = as.factor(Umidade),
+    Extrato = as.factor(Extrato),
+    Tratamento = as.factor(Tratamento)
+  )
+
+# -------------------------
+# 2. Rodar PCA (variáveis quantitativas)
+# -------------------------
+variaveis <- dados %>%
+  select(Numero_folhas, Altura_plantas, Diametro_caule,
+         Area_foliar, Comprimento_raizes, Volume_raizes)
+
+res_pca <- PCA(variaveis, graph = FALSE)
+
+# -------------------------
+# 3. PCA por Micro-organismo
+# -------------------------
+p_micro <- fviz_pca_biplot(res_pca,
+                geom.ind = "point",
+                col.ind = dados$Microrganismo,
+                palette = "jco",
+                addEllipses = TRUE,
+                ellipse.type = "confidence",
+                ellipse.alpha = 0.2,
+                label = "var",
+                col.var = "black",
+                repel = TRUE) +
+  labs(title = "PCA - Micro-organismos",
+       x = paste0("Componente 1 (", round(res_pca$eig[1,2],1), "%)"),
+       y = paste0("Componente 2 (", round(res_pca$eig[2,2],1), "%)"),
+       color = "Micro-organismos") +
+  guides(fill = "none", colour = guide_legend(override.aes = list(fill = NA))) +
+  theme_classic(base_size = 14) +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+
+# -------------------------
+# 4. PCA por Umidade
+# -------------------------
+p_umid <- fviz_pca_biplot(res_pca,
+                geom.ind = "point",
+                col.ind = dados$Umidade,
+                palette = "jco",
+                addEllipses = TRUE,
+                ellipse.type = "confidence",
+                ellipse.alpha = 0.2,
+                label = "var",
+                col.var = "black",
+                repel = TRUE) +
+  labs(title = "PCA - Umidade",
+       x = paste0("Componente 1 (", round(res_pca$eig[1,2],1), "%)"),
+       y = paste0("Componente 2 (", round(res_pca$eig[2,2],1), "%)"),
+       color = "Umidade") +
+  guides(fill = "none", colour = guide_legend(override.aes = list(fill = NA))) +
+  theme_classic(base_size = 14) +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+
+# -------------------------
+# 5. PCA por Extrato
+# -------------------------
+p_extrato <- fviz_pca_biplot(res_pca,
+                geom.ind = "point",
+                col.ind = dados$Extrato,
+                palette = "jco",
+                addEllipses = TRUE,
+                ellipse.type = "confidence",
+                ellipse.alpha = 0.2,
+                label = "var",
+                col.var = "black",
+                repel = TRUE) +
+  labs(title = "PCA - Extrato de Ascophyllum nodosum",
+       x = paste0("Componente 1 (", round(res_pca$eig[1,2],1), "%)"),
+       y = paste0("Componente 2 (", round(res_pca$eig[2,2],1), "%)"),
+       color = "Extrato") +
+  guides(fill = "none", colour = guide_legend(override.aes = list(fill = NA))) +
+  theme_classic(base_size = 14) +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+
+# -------------------------
+# 6. Exibir gráficos
+# -------------------------
+p_micro
+p_umid
+p_extrato
