@@ -1,0 +1,137 @@
+# ================= ENZIMAS — APCA/PCA + BIPLOT + DENDRO + HEATMAP =================
+suppressPackageStartupMessages({
+  library(readxl); library(dplyr); library(ggplot2)
+  library(FactoMineR); library(factoextra); library(pheatmap); library(ggrepel)
+  library(grid) # unit()
+})
+
+# ---- 1) Caminho ----
+file_path <- "C:/Users/55749/Desktop/PCA BRUNO/Enzimas.xlsx"
+sheet     <- NULL  # ou 1, "Planilha1", etc.
+
+# ---- 2) Ler e nomear (NÃO faz média aqui) ----
+dados <- if (is.null(sheet)) read_excel(file_path) else read_excel(file_path, sheet = sheet)
+colnames(dados) <- c("Tratamentos","Peroxidase","Superoxido_dismutase",
+                     "Prolina","Lipoperoxidos","Proteinas_soluveis_totais")
+
+# (use estas 2 linhas só se houve célula mesclada no Excel)
+# limpa_ws  <- function(x){ x <- gsub("\\s+", " ", as.character(x)); trimws(x) }
+# fill_down <- function(v){ v <- as.character(v); last <- NA_character_; for(i in seq_along(v)){ if(is.na(v[i])||v[i]=="") v[i]<-last else last<-v[i] }; v
+# dados$Tratamentos <- fill_down(limpa_ws(dados$Tratamentos))
+
+# Números com vírgula -> ponto
+to_num <- function(x) if (is.numeric(x)) x else as.numeric(gsub(",", ".", x))
+enz_cols <- c("Peroxidase","Superoxido_dismutase","Prolina","Lipoperoxidos","Proteinas_soluveis_totais")
+dados <- dados %>% mutate(across(all_of(enz_cols), to_num))
+
+# ---- 3) Abreviações das enzimas (usadas em TODOS os gráficos) ----
+label_map <- c(
+  Peroxidase = "PER",
+  Superoxido_dismutase = "SOD",
+  Prolina = "PRO",
+  Lipoperoxidos = "LPO",
+  Proteinas_soluveis_totais = "PST"
+)
+
+# Matriz X
+X <- as.data.frame(dados[, enz_cols, drop = FALSE])
+colnames(X) <- unname(label_map[colnames(X)])   # aplica abreviações
+rownames(X) <- as.character(dados$Tratamentos)
+
+# Remove linhas com NA (se houver)
+ok <- complete.cases(X); X <- X[ok, , drop = FALSE]
+
+# ============================= 4) PCA/APCA =============================
+res_pca <- PCA(X, scale.unit = TRUE, ncp = min(5, ncol(X)), graph = FALSE)
+pc_lab  <- function(k) paste0("Componente ", k, " (", round(res_pca$eig[k,2], 1), "%)")
+
+# 4.1 Scree plot (sem “média por tratamento” no título)
+plot_scree <- function(res){
+  df <- data.frame(PC = seq_len(nrow(res$eig)), Var = res$eig[,2])
+  ggplot(df, aes(PC, Var)) + geom_col() + geom_point() + geom_line() +
+    labs(title = "Scree plot", x = "Componente", y = "Variância (%)") +
+    theme_classic(base_size = 14)
+}
+print(plot_scree(res_pca))
+
+# 4.2 Biplot — UMA legenda e sem cortar rótulos das variáveis
+ind <- as.data.frame(res_pca$ind$coord[,1:2])
+var <- as.data.frame(res_pca$var$coord[,1:2])
+rx <- range(c(ind$Dim.1, var$Dim.1)); ry <- range(c(ind$Dim.2, var$Dim.2))
+padx <- ifelse(diff(rx)==0, 1, diff(rx)*0.20); pady <- ifelse(diff(ry)==0, 1, diff(ry)*0.20)
+
+p_biplot <- fviz_pca_biplot(
+  res_pca,
+  geom.ind   = "point",
+  pointshape = 19, pointsize = 3,            # shape fixo => só 1 legenda (cor)
+  col.ind    = factor(rownames(X)),          # cores por tratamento
+  addEllipses = FALSE,
+  label      = "var", labelsize = 5,
+  col.var    = "black",
+  repel      = TRUE,
+  palette    = "Dark2"
+) +
+  labs(title = "PCA - Enzimas",
+       x = pc_lab(1), y = pc_lab(2), color = "Tratamentos") +
+  coord_cartesian(xlim = c(rx[1]-padx, rx[2]+padx),
+                  ylim = c(ry[1]-pady, ry[2]+pady),
+                  clip = "off") +                      # impede corte dos nomes (PER, SOD, ...)
+  theme_classic(base_size = 14) +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"),
+        plot.margin = unit(c(1, 6, 1, 1), "lines")) +
+  guides(shape = "none", fill = "none",
+         colour = guide_legend(override.aes = list(shape = 19, size = 3, fill = NA)))
+
+# Rótulos dos tratamentos no plano
+scores <- ind; scores$Tratamento <- rownames(ind)
+p_biplot <- p_biplot +
+  ggrepel::geom_text_repel(
+    data = scores, aes(Dim.1, Dim.2, label = Tratamento),
+    size = 3.8, max.overlaps = Inf, show.legend = FALSE
+  )
+print(p_biplot)
+
+# 4.3 Contribuições (títulos sem “média”)
+print(fviz_contrib(res_pca, choice = "var", axes = 1, top = ncol(X)) +
+        labs(title = "Contribuição das variáveis - PC1"))
+print(fviz_contrib(res_pca, choice = "var", axes = 2, top = ncol(X)) +
+        labs(title = "Contribuição das variáveis - PC2"))
+
+# ============================= 5) DENDROGRAMAS =============================
+Xs <- scale(as.matrix(X))  # z-score por coluna
+
+# Tratamentos — horizontal
+hc_rows <- hclust(dist(Xs, method = "euclidean"), method = "ward.D2")
+print(fviz_dend(hc_rows, horiz = TRUE, cex = 1.0,
+                main = "Dendrograma - Tratamentos"))
+
+# Variáveis — horizontal (1 - correlação) | usa abreviações (PER, SOD, PRO, LPO, PST)
+cor_mat <- cor(Xs, use = "pairwise.complete.obs")
+hc_vars <- hclust(as.dist(1 - cor_mat), method = "ward.D2")
+print(fviz_dend(hc_vars, horiz = TRUE, cex = 1.1,
+                main = "Dendrograma - Variáveis (enzimas)"))
+
+# ================================ 6) HEATMAP ================================
+labs <- rownames(Xs)
+ann_row <- data.frame(Tratamentos = factor(labs), check.names = FALSE)
+rownames(ann_row) <- labs
+ann_row <- ann_row[rownames(Xs), , drop = FALSE]
+
+pheatmap(
+  mat = Xs,
+  annotation_row = ann_row,
+  annotation_names_row = FALSE,   # não escrever "Tratamentos" ao lado
+  clustering_distance_rows = "euclidean",
+  clustering_distance_cols = "euclidean",
+  clustering_method = "ward.D2",
+  scale = "none",
+  show_rownames = TRUE,
+  fontsize = 12,
+  fontsize_col = 12,              # tamanho dos nomes das enzimas
+  angle_col = 0,                  # enzimas na horizontal
+  main = "Heatmap - Enzimas"
+)
+
+# (Opcional) exportar com largura maior, evitando cortes:
+# ggsave("pca_biplot.png", p_biplot, width = 11, height = 7, dpi = 300)
+# =============================================================================
